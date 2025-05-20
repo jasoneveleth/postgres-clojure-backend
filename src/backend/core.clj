@@ -1,5 +1,6 @@
 (ns backend.core
   (:require [compojure.core :refer [defroutes GET POST]]
+            [clojure.string :as string]
             [org.httpkit.server :as server]
             [next.jdbc :as jdbc]
             [clojure.data.json :as json])
@@ -97,4 +98,4 @@
   (let [port (Integer/parseInt (or (System/getenv "PORT") "8080"))] 
     (create-table)
     (server/run-server #'app-routes {:port port})
-    (println (str "Running the server at http://localhost:" port "/"))))
+    (println (str "Running the server at http://localhost:" port "/" (string/join " " args)))))
