@@ -1,6 +1,5 @@
 (ns backend.core
   (:require [compojure.core :refer [defroutes GET POST]]
-            [ring.util.codec :as codec]
             [org.httpkit.server :as server]
             [next.jdbc :as jdbc]
             [clojure.data.json :as json])
@@ -17,11 +16,6 @@
 
 (def db (jdbc/get-datasource db-spec))
 
-(defn make-psql-json [dict]
-  (doto (org.postgresql.util.PGobject.)
-    (.setType "json")
-    (.setValue (json/write-str dict))))
-
 (defn create-table []
   (jdbc/execute! db ["CREATE TABLE IF NOT EXISTS undo_tree (
                       node_id SERIAL PRIMARY KEY,
@@ -32,8 +26,8 @@
                       timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                       FOREIGN KEY (parent_id) REFERENCES undo_tree (node_id));"])
   (jdbc/execute! db ["INSERT INTO undo_tree (node_id, op_type, op_data, full_state_snapshot)
-                      VALUES (?, ?, ?, ?)
-                      ON CONFLICT DO NOTHING" 0 "init" "" (make-psql-json {})])
+                      VALUES (?, ?, ?, ?::json)
+                      ON CONFLICT DO NOTHING" 0 "init" "" (json/write-str {})])
   (jdbc/execute! db ["CREATE INDEX IF NOT EXISTS idx_parent_id ON undo_tree (parent_id);"])
   (jdbc/execute! db ["CREATE INDEX IF NOT EXISTS idx_timestamp ON undo_tree (timestamp);"])
   (jdbc/execute! db ["CREATE TABLE IF NOT EXISTS curr_node_id (
@@ -75,8 +69,8 @@
         {op-type "op_type" op-data "op_data" state "state"} data
         {parent-id :curr_node_id/node_id} (first (jdbc/execute! db ["select * from curr_node_id"]))] 
     (jdbc/execute! db ["INSERT INTO undo_tree (parent_id, op_type, op_data, full_state_snapshot)
-                          VALUES (?, ?, ?, ?);" 
-                         parent-id op-type (make-psql-json op-data) (make-psql-json state)])
+                          VALUES (?, ?, ?::json, ?::json);" 
+                         parent-id op-type (json/write-str op-data) (json/write-str state)])
     {:status 201
       :headers {"Content-Type" "application/json"}
       :body (json/write-str {"version" "1.0.0"})}))
@@ -87,9 +81,13 @@
   (GET "/api_v1/get-undo-tree" [] unimplemented)
   (POST "/api_v1/do" data (do-handler data))
   (GET "/api_v1/redo" [] unimplemented)
+  ; goes to most recent child -- you'll need to SELECT parent id = node_id and limit to most recent
   (GET "/api_v1/undo" [] unimplemented)
+  ; goes to parent, which is easy, select the parent id of the node_id
   (GET "/api_v1/can-redo" [] unimplemented)
+  ; check for children
   (GET "/api_v1/can-undo" [] unimplemented)
+  ; check for parent_id not null
   (GET "/api_v1/get-current-state" [] (get-current-state))
   (GET "/" [] unimplemented))
 
